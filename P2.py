@@ -1,7 +1,3 @@
-## Written by: Harshet Anand
-## Attribution: Hugh Liu's solutions for CS540 2021 Epic
-## Collaboration with Sreya Sarathy from CS540
-
 import numpy as np
 
 threshold_list = range(1, 11)
