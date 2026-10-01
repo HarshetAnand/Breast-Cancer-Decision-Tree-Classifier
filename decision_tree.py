@@ -1,390 +1,269 @@
+"""Decision tree classifier for breast cancer diagnosis, built from scratch.
+
+Trains a binary decision tree on the Wisconsin Breast Cancer dataset from the
+UCI Machine Learning Repository. Each split is chosen by information gain, the
+tree is grown until no split improves it, and it is then pruned to a fixed
+depth. Both trees are written out as readable if/else rules and used to
+classify a held-out set of samples.
+
+Columns of breast-cancer-wisconsin.data, numbered from 1:
+     1  sample code number          7  bare nuclei
+     2  clump thickness             8  bland chromatin
+     3  uniformity of cell size     9  normal nucleoli
+     4  uniformity of cell shape   10  mitoses
+     5  marginal adhesion          11  class (2 = benign, 4 = malignant)
+     6  single epithelial cell size
+
+Columns 2 to 10 are scored from 1 to 10. Rows with a missing value ('?') are
+dropped.
+"""
+
 import numpy as np
 
+TRAIN_FILE = 'breast-cancer-wisconsin.data'
+TEST_FILE = 'test.txt'
+
+# Columns the tree is allowed to split on, using the numbering above.
+feature_list = [9, 5, 4, 6, 2, 10]
+
+# Every feature is scored 1 to 10, so these are all the possible cut points.
 threshold_list = range(1, 11)
 
-# Adjust the following parameters by yourself
-# The parameters I had were as follows:
-part_one_feature = [4]
-feature_list = [9, 5, 4, 6, 2, 10]
+# Depth the full tree is pruned back to.
 target_depth = 6
 
-# Now, we need to open the file named "breast-cancer-wisconsin.data" in read mode. We then assign it to variable f
-# We add commands in order to remove any trailing newline characters from the line and to split the line into a list of
-# values based on the CSV format.
-with open('breast-cancer-wisconsin.data', 'r') as f:
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+
+with open(TRAIN_FILE, 'r') as f:
     data_raw = [l.strip('\n').split(',') for l in f if '?' not in l]
-data = np.array(data_raw).astype(int)  # This is the training data used in the code
+data = np.array(data_raw).astype(int)
 
-# The following function calculates the entropy of a dataset based on the labels present in the last column of the
-# data list. Entropy is a measure of uncertainty or randomness in the dataset.
-def entropy(data):
-    entropy = 0  # Initialize the entropy variable to store the calculated entropy value.
-    count = len(data)  # Get the total number of instances in the 'data' list.
-    n2 = np.sum(data[:, -1] == 2)  # number of k1
-    n4 = np.sum(data[:, -1] == 4)  # number of k2
-    if n2 == 0 or n4 == 0:
-        # If either the count of k1 (label '2') or k2 (label '4') is zero,
-        # it means there is only one class of instances, so entropy is zero.
-        return 0
-    else:
-        # If both k1 and k2 instances are present, calculate entropy for each class.
-        for n in [n2, n4]:
-            p = n / count # Calculate the probability of the class.
-            entropy += - (p * np.log2(p)) # Update the entropy by adding the contribution of each class.
-        return entropy # Return the calculated entropy value.
+with open(TEST_FILE, 'r') as f:
+    test_data = [l.strip('\n').split(',') for l in f if '?' not in l]
+test_data = np.array(test_data).astype(int)
 
-# We need to print the total number of 2s and 4s from the dataset.
 total_n2 = np.sum(data[:, -1] == 2)
 total_n4 = np.sum(data[:, -1] == 4)
 
-# print the total number of 2s and 4s
-print(total_n2)
-print(total_n4)
 
-# The function infogain takes three parameters: data (the input dataset),
-# feature (the index of the feature to split on), and threshold (the threshold value for the split).
-# It calculates the total number of data points in the dataset, which will be used later for calculating proportions.
+# ---------------------------------------------------------------------------
+# Choosing a split
+# ---------------------------------------------------------------------------
+
+def entropy(data):
+    """Entropy of the class labels, in bits. 0 when every sample agrees."""
+    entropy = 0
+    count = len(data)
+    n2 = np.sum(data[:, -1] == 2)
+    n4 = np.sum(data[:, -1] == 4)
+    if n2 == 0 or n4 == 0:
+        return 0
+    else:
+        for n in [n2, n4]:
+            p = n / count
+            entropy += - (p * np.log2(p))
+        return entropy
+
+
 def infogain(data, feature, threshold):
+    """Reduction in entropy from splitting on feature <= threshold."""
     count = len(data)
     d1 = data[data[:, feature - 1] <= threshold]
     d2 = data[data[:, feature - 1] > threshold]
-    # The proportions of data points in each subset are calculated by dividing the
-    # number of data points in each subset by the total count of data points.
     proportion_d1 = len(d1) / count
     proportion_d2 = len(d2) / count
     return entropy(data) - proportion_d1 * entropy(d1) - proportion_d2 * entropy(d2)
 
 
-# The following helps us understand the "best split". We start by calculating the total number of data points.
-# Then we count the number of data points with class level 2.
+def majority_class(data):
+    """The more common class label. Ties go to 2."""
+    n2 = np.sum(data[:, -1] == 2)
+    n4 = np.sum(data[:, -1] == 4)
+    return 2 if n2 >= n4 else 4
+
+
 def get_best_split(data, feature_list, threshold_list):
+    """Find the feature and threshold with the highest information gain.
+
+    Return:
+        (feature, threshold, left prediction, right prediction) for a split,
+        where each prediction is the majority class on that side.
+        (class label, None, None, None) when the data should not be split,
+        either because it is all one class or because no split helps.
+    """
     c = len(data)
     c0 = sum(b[-1] == 2 for b in data)
-    # If all data points have class label 2, return class label 2 and no split information.
     if c0 == c: return 2, None, None, None
     if c0 == 0: return 4, None, None, None
-    # Calculate the information gain for all possible combinations of features and thresholds.
+
     ig = [[infogain(
         data, feature, threshold) for threshold in threshold_list] for feature in feature_list]
-    # Convert the information gain list into a numpy array for easier manipulation.
     ig = np.array(ig)
-    # Find the maximum information gain value.
     max_ig = max(max(i) for i in ig)
 
-    # If the maximum information gain is 0, it means no further splitting will improve the classification.
-    # In such cases, return the majority class label as the prediction for both branches.
     if max_ig == 0:
         if c0 >= c - c0:
             return 2, None, None, None
         else:
             return 4, None, None, None
-    # Find the index of the maximum information gain in the 2D array.
+
     idx = np.unravel_index(np.argmax(ig, axis=None), ig.shape)
     feature, threshold = feature_list[idx[0]], threshold_list[idx[1]]
 
-    # Split the dataset into two subsets based on the selected feature and threshold.
-    dl = data[data[:, feature - 1] <= threshold]  # Subset with values less than or equal to the threshold.
+    dl = data[data[:, feature - 1] <= threshold]
+    dr = data[data[:, feature - 1] > threshold]
 
-    # Calculate the number of data points in each subset with class label 2 and 4.
-    dl_n2 = np.sum(dl[:, -1] == 2)
-    dl_n2 = np.sum(dl[:, -1] == 2)
-    dl_n4 = np.sum(dl[:, -1] == 4)
-
-    # Check if the number of data points with class label 2 in the left subset
-    # is greater than or equal to the number of data points with class label 4.
-    if dl_n2 >= dl_n4:
-        dl_prediction = 2
-    else:
-        dl_prediction = 4
-    dr = data[data[:, feature - 1] > threshold] # Subset with values greater than the threshold.
-    dr_n2 = np.sum(dr[:, -1] == 2)
-    dr_n4 = np.sum(dr[:, -1] == 4)
-
-    # Check if the number of data points with class label 2 in the right subset is greater than or equal
-    # to the number of data points with class label 4.
-    if dr_n2 >= dr_n4:
-        if dr_n2 >= dr_n4:
-            dr_prediction = 2
-    else:
-        dr_prediction = 4
-
-    # Return the selected feature, threshold, and predictions for the left and right branches.
-    return feature, threshold, dl_prediction, dr_prediction
-
-# def get_best_split(data, feature_list, threshold_list):
-#     c = len(data)
-#     c0 = sum(b[-1] == 2 for b in data)
-#     if c0 == c: return 2, None, None, None
-#     if c0 == 0: return 4, None, None, None
-#     ig = [[infogain(
-#         data, feature, threshold) for threshold in threshold_list] for feature in feature_list]
-#     ig = np.array(ig)
-#     max_ig = max(max(i) for i in ig)
-#     if max_ig == 0:
-#         if c0 >= c - c0:
-#             return 2, None, None, None
-#         else:
-#             return 4, None, None, None
-
-#     idx = np.unravel_index(np.argmax(ig, axis=None), ig.shape)
-#     feature, threshold = feature_list[idx[0]], threshold_list[idx[1]]
-
-#     # data below threshold
-#     dl = data[data[:, feature - 1] <= threshold]
-#     dl_n2 = np.sum(dl[:, -1] == 2)  # positive instances below threshold
-#     dl_n4 = np.sum(dl[:, -1] == 4)  # negative instances below threshold
-
-#     # data above threshold
-#     dr = data[data[:, feature - 1] > threshold]
-#     dr_n2 = np.sum(dr[:, -1] == 2)  # positive instances above threshold
-#     dr_n4 = np.sum(dr[:, -1] == 4)  # negative instances above threshold
-
-#     # print the results
-#     print(f"For feature {feature} and threshold {threshold}:")
-#     print(f"Below threshold: {dl_n2} positive instances, {dl_n4} negative instances")
-#     print(f"Above threshold: {dr_n2} positive instances, {dr_n4} negative instances")
+    return feature, threshold, majority_class(dl), majority_class(dr)
 
 
-# The following class is the node class where we initialize all parameters.
+# ---------------------------------------------------------------------------
+# Building the tree
+# ---------------------------------------------------------------------------
+
 class Node:
-    # Initialize a Node object representing a node in a decision tree.
+    """One split in the tree.
+
+    Samples with feature <= threshold go left, the rest go right. Each side
+    has a prediction, used when that side has no child node, and optionally a
+    child node (l or r) that splits it further.
+    """
+
     def __init__(self, feature=None, threshold=None, l_prediction=None, r_prediction=None):
-
-        # Feature: The index of the feature used for splitting at this node.
-        # If this node is a leaf node (has no children), it will be set to None.
-        # Threshold: The threshold value used to split the data based on the feature.
-        # If this node is a leaf node, it will be set to None.
-
         self.feature = feature
         self.threshold = threshold
-
-        # Left Prediction: The class label prediction for the left branch of the tree.
-        # If this node represents a leaf node, this will be the predicted class label for the left branch.
-        # Right Prediction: The class label prediction for the right branch of the tree.
-        # If this node represents a leaf node, this will be the predicted class label for the right branch.
         self.l_prediction = l_prediction
         self.r_prediction = r_prediction
-
-        # Left Child: A reference to the left child node (subtree) in the decision tree.
-        # Initially set to None, as the node might be a leaf node with no children.
-        # Right Child: A reference to the right child node (subtree) in the decision tree.
-        # Initially set to None, as the node might be a leaf node with no children.
-
         self.l = None
         self.r = None
 
-        # Correct: A variable used to store the number of correctly classified instances in the node's subtree.
-        # This is typically used during the construction of the decision tree and can be useful for pruning or analysis.
-        self.correct = 0
 
-
-# The following function splits the input data into two subsets based on a given node's features.
-# Extract the feature and threshold from the node to be used for splitting.
-# We create two subsets - one containing data points with values less than or equal to the threshold,
-# and one containing data points with values greater than the threshold for the selected feature.
 def split(data, node):
-    # split the data into two parts
+    """Split the data into the two sides of a node."""
     feature, threshold = node.feature, node.threshold
     d1 = data[data[:, feature - 1] <= threshold]
     d2 = data[data[:, feature - 1] > threshold]
     return (d1, d2)
 
 
-# With the following function, we define a recursive function that constructs a decision tree starting from the given
-# node and using the given input data.
 def create_tree(data, node, feature_list):
-
-    # The data is split into two subsets d1 and d2 based on the feature and threshold of the current node.
-    # This split divides the data into two branches, left and right.
+    """Grow the tree below a node, recursively, until no split helps."""
     d1, d2 = split(data, node)
     f1, t1, l1_prediction, r1_prediction = get_best_split(d1, feature_list, threshold_list)
     f2, t2, l2_prediction, r2_prediction = get_best_split(d2, feature_list, threshold_list)
 
-    # If t1 is None, it means no further splitting improves the classification for the left subset.
-    # In this case, set the left prediction directly to the majority class label in d1.
-    if t1 == None:
-        node.l_pre = f1
+    # When a side should not be split, get_best_split returns its class label.
+    if t1 is None:
+        node.l_prediction = f1
     else:
         node.l = Node(f1, t1, l1_prediction, r1_prediction)
         create_tree(d1, node.l, feature_list)
 
-    # If t2 is None, it means no further splitting improves the classification for the right subset.
-    # In this case, set the right prediction directly to the majority class label in d2.
-    if t2 == None:
-        node.r_pre = f2
+    if t2 is None:
+        node.r_prediction = f2
     else:
         node.r = Node(f2, t2, l2_prediction, r2_prediction)
-        # Recursively call create_tree with d2 and the new right node to build the right branch of the tree.
         create_tree(d2, node.r, feature_list)
 
-# The following function is a recursive function that calculates the maximum depth of a decision tree. The depth of a
-# tree represents the maximum number of edges between the tree's root and any of its leaf nodes.
-def maxDepth(node):
-    # If the node is None, it means it's a leaf node or an empty tree with no children.
-    # In such cases, the depth of the current subtree is 0.
-    if node is None:
-        return 0;
 
-    else:
-        # Recursively calculate the maximum depth of the left subtree.
-        left_depth = maxDepth(node.l)
-        # Recursively calculate the maximum depth of the right subtree.
-        right_depth = maxDepth(node.r)
-
-        # Return the maximum depth of the current subtree by taking the maximum of the left and right subtrees,
-        # and adding 1 to account for the current node.
-        return max(left_depth, right_depth) + 1
-
-
-# The expand_root function is designed to expand the root node of a decision tree
-# by finding the best split for it based on the provided data (data), feature list (feature_list),
-# and threshold list (threshold_list).
 def expand_root(data, feature_list, threshold_list):
-    # Expands the root node of a decision tree by finding the best split based on the provided data.
-    # Get the best split for the root node using the 'get_best_split' function,
-    # which returns the optimal feature, threshold, and the left and right branches.
-    feature, threshold, dl, dr = get_best_split(
+    """Build the full tree and return its root."""
+    feature, threshold, l_prediction, r_prediction = get_best_split(
         data, feature_list, threshold_list)
-    root = Node(feature, threshold)
-    # first split
-    data1, data2 = split(data, root)
+    root = Node(feature, threshold, l_prediction, r_prediction)
     create_tree(data, root, feature_list)
     return root
 
-# Get the best split for the root node of the decision tree using the provided data,
-# feature list, and threshold list.
-feature, threshold, dl, dr = get_best_split(
-    data, feature_list, threshold_list)
 
-# Expand the root node of the decision tree using the 'expand_root' function,
-# which constructs the decision tree based on the best split obtained from the data.
-root = expand_root(data, feature_list, threshold_list)
-
-# Calculate the maximum depth (height) of the decision tree rooted at 'root'
-# using the 'maxDepth' function. The result represents the longest path from the root node to a leaf node.
-maxDepth(root)
+def max_depth(node):
+    """Number of nodes on the longest path from this node down."""
+    if node is None:
+        return 0
+    return max(max_depth(node.l), max_depth(node.r)) + 1
 
 
-# The following lines of code are specific to Q5 and Q6
-# The print_tree function is designed to recursively print the decision tree rooted at the given node to the provided
-# file f.
-# It prints the decision rules and predictions for each node in the tree.
-
-def print_tree(node, f, prefix=''):
-    # Recursively prints the decision tree rooted at 'node' to a file 'f' with the provided prefix.
-    feature = node.feature
-    threshold = node.threshold
-    # Extract information from the current node for printing purposes.
-    l_prediction = node.l_prediction
-    r_prediction = node.r_prediction
-    l = node.l
-    r = node.r
-
-    # Check if the left child node is None. If so, it means the current node is a leaf node.
-    # In this case, print the decision rule for the leaf node and its prediction value.
-    if l == None:
-        f.write(prefix + 'if (x' + str(feature) + ') <= ' + str(threshold) + ') return ' + str(l_prediction) + '\n')
-    else:
-        # If the left child node exists, print the decision rule for this node and recursively call
-        # the 'print_tree' function for the left subtree.
-        f.write(prefix + 'if (x' + str(feature) + ') <= ' + str(threshold) + ')\n')
-        print_tree(l, f, prefix + ' ')
-
-    # Check if the right child node is None. If so, it means the current node is a leaf node on the right branch.
-    # In this case, print the decision rule for the leaf node on the right branch and its prediction value.
-    if r == None:
-        f.write(prefix + 'else return ' + str(r_prediction) + '\n')
-    else:
-        # If the right child node exists, print the decision rule for this node and recursively call
-        # the 'print_tree' function for the right subtree.
-        f.write(prefix + 'else\n')
-        print_tree(r, f, prefix + ' ')
-
-# Open the 'test.txt' file in read mode ('r') and read its contents line by line.
-# The file is expected to contain test data for the decision tree.
-with open('test.txt', 'r') as f:
-    test_data = [l.strip('\n').split(',') for l in f if '?' not in l]
-
-# Open the 'tree.txt' file in write mode ('w') to write the decision tree's content.
-# The 'tree.txt' file will contain the printed decision tree.
-with open('tree.txt', 'w') as f:
-    # Print the decision tree rooted at 'root' to the file 'tree.txt' using the 'print_tree' function.
-    print_tree(root, f)
-# Convert the test data from a list of strings to a NumPy array of integers for processing.
-test_data = np.array(test_data).astype(int)  # test
-
-
-# The following lines of code are specific for Q7 and Q9
-# The tree_prediction function is used to predict the class label for a given data point 'x' using the decision tree
-# rooted at the given node. The function begins by extracting the necessary information from the current node
-# (feature, threshold, left and right predictions, left and right child nodes).
-
-def tree_prediction(node, x):
-    # Predicts the class label for a given data point 'x' using the decision tree rooted at 'node'.
-    # Extract information from the current node for prediction purposes.
-    feature = node.feature
-    threshold = node.threshold
-    l_prediction = node.l_prediction
-    r_prediction = node.r_prediction
-    l = node.l
-    r = node.r
-    if x[feature - 1] <= threshold:
-        if l_prediction == x[-1]:
-            node.correct += 1
-
-        if l == None:
-            return l_prediction
-        else:
-            return tree_prediction(l, x)
-    else:
-        if r_prediction == x[-1]:
-            node.correct += 1
-        if r == None:
-            return r_prediction
-        else:
-            return tree_prediction(r, x)
-
-# The 'tree_prediction' function is called for each data point 'x' in the 'test_data' list,
-# and the predicted class labels are stored as strings in the 'predictions' list.
-predictions = [str(tree_prediction(root, x)) for x in test_data]
-predictions_str = ', '.join(predictions)
-# Print the comma-separated string containing the predicted class labels for the test data.
-print(predictions_str)
-
-
-# The following lines of code are used for Q8 of the project.
-# The prune function prunes the decision tree rooted at the given node to a specified depth (depth).
-# Pruning involves reducing the depth of the tree by removing some branches (subtrees),
-# effectively converting certain nodes into leaf nodes.
 def prune(node, depth):
-    # Prunes the decision tree rooted at 'node' to a specified 'depth'.
+    """Cut the tree to the given depth.
 
-    # If the 'depth' parameter is 1, it means the current 'node' is at the desired pruning depth.
-    # In this case, set both left and right child nodes to None, effectively converting the node into a leaf node.
+    Nodes at the cutoff lose their children and fall back on their majority
+    class predictions.
+    """
     if depth == 1:
         node.l = None
         node.r = None
-    # If the 'depth' is greater than 1, recursively prune the left and right subtrees.
-    # Check if the left child node exists (is not None) and recursively prune it to the specified depth - 1.
-    # Check if the right child node exists (is not None) and recursively prune it to the specified depth - 1.
     else:
-        if node.l != None:
+        if node.l is not None:
             prune(node.l, depth - 1)
-        if node.r != None:
+        if node.r is not None:
             prune(node.r, depth - 1)
 
-# Prune the 'root' of the decision tree to a specified 'target_depth'.
-prune(root, depth=target_depth)
 
-# Save the pruned tree to a file named 'pruned_tree.txt' for further analysis or usage.
+# ---------------------------------------------------------------------------
+# Using the tree
+# ---------------------------------------------------------------------------
+
+def print_tree(node, f, prefix=''):
+    """Write the tree to file f as nested if/else rules."""
+    feature = node.feature
+    threshold = node.threshold
+    l_prediction = node.l_prediction
+    r_prediction = node.r_prediction
+    l = node.l
+    r = node.r
+
+    if l is None:
+        f.write(prefix + 'if (x' + str(feature) + ' <= ' + str(threshold) + ') return ' + str(l_prediction) + '\n')
+    else:
+        f.write(prefix + 'if (x' + str(feature) + ' <= ' + str(threshold) + ')\n')
+        print_tree(l, f, prefix + ' ')
+
+    if r is None:
+        f.write(prefix + 'else return ' + str(r_prediction) + '\n')
+    else:
+        f.write(prefix + 'else\n')
+        print_tree(r, f, prefix + ' ')
+
+
+def tree_prediction(node, x):
+    """Predict the class of sample x by following the tree down from node."""
+    if x[node.feature - 1] <= node.threshold:
+        if node.l is None:
+            return node.l_prediction
+        else:
+            return tree_prediction(node.l, x)
+    else:
+        if node.r is None:
+            return node.r_prediction
+        else:
+            return tree_prediction(node.r, x)
+
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+
+print(f"Training samples: {total_n2} benign, {total_n4} malignant")
+
+# Full tree.
+root = expand_root(data, feature_list, threshold_list)
+print(f"Full tree depth: {max_depth(root)}")
+
+with open('tree.txt', 'w') as f:
+    print_tree(root, f)
+
+predictions = [str(tree_prediction(root, x)) for x in test_data]
+print("Predictions from the full tree:")
+print(', '.join(predictions))
+
+# Pruned tree.
+prune(root, depth=target_depth)
+print(f"Pruned tree depth: {max_depth(root)}")
+
 with open('pruned_tree.txt', 'w') as f:
     print_tree(root, f)
 
-# Prune the 'root' of the decision tree again to ensure it remains at the desired 'target_depth'.
-# Generate predictions for the test data using the pruned decision tree and convert them to strings.
-# Join the predictions into a comma-separated string for easy printing or further processing.
-# Print the predictions for the test data.
-prune(root, depth=target_depth)
 predictions = [str(tree_prediction(root, x)) for x in test_data]
-predictions_str = ', '.join(predictions)
-print(predictions_str)
+print("Predictions from the pruned tree:")
+print(', '.join(predictions))
