@@ -1,6 +1,6 @@
 # Breast Cancer Decision Tree Classifier
 
-A from-scratch implementation of decision stumps and a decision tree classifier to diagnose breast cancer from patient medical data. Built without ML libraries to demonstrate understanding of tree construction, entropy calculation, information gain, and pruning.
+A from-scratch implementation of a decision tree classifier to diagnose breast cancer from patient medical data. Built without ML libraries to demonstrate understanding of tree construction, entropy calculation, information gain, and pruning.
 
 ## Features
 
@@ -8,7 +8,7 @@ A from-scratch implementation of decision stumps and a decision tree classifier 
 - Entropy and information gain calculations
 - Optimal split selection across features and thresholds
 - Tree pruning to control overfitting
-- Predictions on test data with accuracy tracking
+- Predictions on held-out test samples from both the full and pruned trees
 - Tree visualization through readable text output
 
 ## Tech Stack
@@ -16,6 +16,15 @@ A from-scratch implementation of decision stumps and a decision tree classifier 
 - Python
 - NumPy
 - Wisconsin Breast Cancer dataset
+
+## Data
+
+The script expects two files in the project folder:
+
+- `breast-cancer-wisconsin.data`: the Wisconsin Breast Cancer (Original) dataset from the UCI Machine Learning Repository. Each row is a sample ID, nine features scored from 1 to 10, and a class label (2 = benign, 4 = malignant).
+- `test.txt`: samples to classify, in the same comma-separated format.
+
+Rows with a missing value are dropped. The script writes the full tree to `tree.txt` and the pruned tree to `pruned_tree.txt` as nested if/else rules.
 
 ## Implementation Details
 
