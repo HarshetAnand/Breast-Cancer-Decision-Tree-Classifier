@@ -26,6 +26,8 @@ The script expects two files in the project folder:
 
 Rows with a missing value are dropped. The script writes the full tree to `tree.txt` and the pruned tree to `pruned_tree.txt` as nested if/else rules.
 
+By default the tree splits on six of the nine features and is pruned to a depth of 6. Both are set at the top of `decision_tree.py`.
+
 ## Implementation Details
 
 - **Entropy calculation:** Measures dataset uncertainty based on class distribution
